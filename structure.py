@@ -7,6 +7,7 @@ import random
 import numpy as np
 import json
 import time
+import tqdm
 
 
 # === Seed setting ===
@@ -450,7 +451,7 @@ def train_and_evaluate(dataset_name, optimizer_name, model_name, optimizer_param
     start_time = time.time() # Start time for training
     duration = [] # List to store time taken for each epoch
 
-    for epoch in range(epochs):
+    for epoch in tqdm.tqdm(range(epochs), desc="Training", unit="epoch"):
         model.train()
         running_loss = 0.0
         for inputs, targets in train_loader:
@@ -495,7 +496,7 @@ def train_and_evaluate(dataset_name, optimizer_name, model_name, optimizer_param
         elif scheduler:
             scheduler.step()
 
-        print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Test Loss: {avg_test_loss:.4f} - Accuracy: {accuracy:.4f}")
+        # print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Test Loss: {avg_test_loss:.4f} - Accuracy: {accuracy:.4f}")
         partial_time = time.time() - start_time
         duration.append(partial_time)
     
@@ -504,6 +505,9 @@ def train_and_evaluate(dataset_name, optimizer_name, model_name, optimizer_param
 
 
 # === Experiment Runner with Param Scan Support ===
+import os
+import json
+
 def run_experiments(
     datasets,
     models,
@@ -511,47 +515,75 @@ def run_experiments(
     scheduler_config=None,
     epochs=5,
     save_results=False,
-    save_path="results.json"
+    save_path="results.json",
+    linear=False
 ):
     results = []
 
-    for dataset in datasets:
-        for model_config in models:
-            model_name = model_config["name"]
-            model_params = model_config.get("params", {})
-            for opt_dict in optimizers_with_params:
-                opt_name = opt_dict["name"]
-                opt_params = opt_dict["params"]
-                print(f"\n🧪 Dataset: {dataset} | Model: {model_name} | Optimizer: {opt_name} | Scheduler: {scheduler_config is not None}")
-                train_losses, test_losses, test_accuracies, duration = train_and_evaluate(
-                    dataset_name=dataset,
-                    optimizer_name=opt_name,
-                    model_name=model_name,
-                    optimizer_params=opt_params,
-                    model_params=model_params,
-                    scheduler_config=scheduler_config,
-                    epochs=epochs
-                )
+    if linear:
+        if not (len(datasets) == len(models) == len(optimizers_with_params)):
+            raise ValueError("Si linear=True, datasets, models et optimizers_with_params doivent avoir la même taille.")
+        configs = zip(datasets, models, optimizers_with_params)
+    else:
+        configs = (
+            (d, m, o)
+            for d in datasets
+            for m in models
+            for o in optimizers_with_params
+        )
 
-                results.append({
-                    "dataset": dataset,
-                    "model": model_name,
-                    "model_params": model_params,
-                    "optimizer": opt_name,
-                    "optimizer_params": opt_params,
-                    "scheduler": scheduler_config,
-                    "duration": duration,
-                    "train_losses": train_losses,
-                    "test_losses": test_losses,
-                    "accuracies": test_accuracies
-                })
+    def format_params(d):
+        return ", ".join(f"{k}={v}" for k, v in d.items())
+
+    for i, (dataset, model_config, opt_dict) in enumerate(configs, 1):
+        model_name = model_config["name"]
+        model_params = model_config.get("params", {})
+        opt_name = opt_dict["name"]
+        opt_params = opt_dict["params"]
+
+        print(f"\n🔹 Run {i}")
+        print(f"📊 Dataset     : {dataset}")
+        print(f"🧠 Model       : {model_name}")
+        if model_params:
+            print(f"    ↳ Model Params : {format_params(model_params)}")
+        print(f"🛠️ Optimizer   : {opt_name}")
+        if opt_params:
+            print(f"    ↳ Optim Params : {format_params(opt_params)}")
+        if scheduler_config:
+            print(f"📉 Scheduler   : {scheduler_config['type']} ({format_params(scheduler_config['params'])})")
+        print(f"📈 Epochs      : {epochs}")
+
+        train_losses, test_losses, test_accuracies, duration = train_and_evaluate(
+            dataset_name=dataset,
+            optimizer_name=opt_name,
+            model_name=model_name,
+            optimizer_params=opt_params,
+            model_params=model_params,
+            scheduler_config=scheduler_config,
+            epochs=epochs
+        )
+
+        results.append({
+            "dataset": dataset,
+            "model": model_name,
+            "model_params": model_params,
+            "optimizer": opt_name,
+            "optimizer_params": opt_params,
+            "scheduler": scheduler_config,
+            "duration": duration,
+            "train_losses": train_losses,
+            "test_losses": test_losses,
+            "accuracies": test_accuracies
+        })
 
     if save_results:
+        os.makedirs("Data", exist_ok=True)
         with open(save_path, "w") as f:
             json.dump(results, f, indent=2)
-        print(f"✅ Results saved to {save_path}")
+        print(f"\n✅ Résultats sauvegardés dans '{save_path}'")
 
     return results
+
 
 
 
