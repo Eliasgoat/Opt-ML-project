@@ -218,7 +218,7 @@ class NewtonOptimizer(Optimizer):
         defaults = {"lr": lr, "epsilon": epsilon}
         super().__init__(params, defaults)
 
-    @torch.no_grad()
+    # @torch.no_grad()
     def step(self, closure):
         """
         closure() doit recalculer la loss (et ses gradients).
@@ -230,26 +230,25 @@ class NewtonOptimizer(Optimizer):
             for p in group["params"]:
                 if p.grad is None:
                     continue
-                grad = p.grad.data.view(-1)
 
-                # Approximation de la Hessienne par autograd
-                def get_grad():
-                    return torch.autograd.grad(loss, p, create_graph=True)[0].view(-1)
+                # 🔁 Recalcule le gradient AVEC graphe
+                grad = torch.autograd.grad(loss, p, create_graph=True, retain_graph=True)[0].view(-1)
 
-                H = []
+                H_rows = []
                 for i in range(grad.numel()):
                     grad_i = torch.autograd.grad(grad[i], p, retain_graph=True)[0].view(-1)
-                    H.append(grad_i)
-                H = torch.stack(H)
+                    H_rows.append(grad_i)
+                H = torch.stack(H_rows)
 
-                # Résolution : delta = H⁻¹ * grad
+                # 🔽 Résolution de Hx = g
                 try:
-                    delta = torch.linalg.solve(H + eps * torch.eye(H.size(0)).to(H), grad)
-                    p.data -= lr * delta.view(p.data.size())
+                    delta = torch.linalg.solve(H + eps * torch.eye(H.size(0), device=H.device), grad)
+                    p.data -= lr * delta.view(p.shape)
                 except RuntimeError:
                     print("⚠️ Hessian inversion failed — skipping Newton step")
 
         return loss
+
 
                    
 class ProjectedGradientDescent(Optimizer):
@@ -452,6 +451,7 @@ def train_and_evaluate(dataset_name, optimizer_name, model_name, optimizer_param
     duration = [] # List to store time taken for each epoch
 
     for epoch in tqdm.tqdm(range(epochs), desc="Training", unit="epoch"):
+        epoch_start = time.time()
         model.train()
         running_loss = 0.0
         for inputs, targets in train_loader:
@@ -462,7 +462,6 @@ def train_and_evaluate(dataset_name, optimizer_name, model_name, optimizer_param
                     optimizer.zero_grad()
                     outputs = model(inputs)
                     loss = criterion(outputs, targets)
-                    loss.backward()
                     return loss
                 loss = optimizer.step(closure)
             else:
@@ -497,8 +496,8 @@ def train_and_evaluate(dataset_name, optimizer_name, model_name, optimizer_param
             scheduler.step()
 
         # print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Test Loss: {avg_test_loss:.4f} - Accuracy: {accuracy:.4f}")
-        partial_time = time.time() - start_time
-        duration.append(partial_time)
+        epoch_time = time.time() - epoch_start
+        duration.append(epoch_time)
     
     
     return train_losses, test_losses, test_accuracies, duration
@@ -575,7 +574,11 @@ def run_experiments(
             "test_losses": test_losses,
             "accuracies": test_accuracies
         })
-
+        if save_results:
+            temp_path = save_path.replace(".json", "_temp.json")
+            with open(temp_path, "w") as f:
+                json.dump(results, f, indent=2)
+            print(f"💾 Temp results saved to {temp_path}")
     if save_results:
         os.makedirs("Data", exist_ok=True)
         with open(save_path, "w") as f:
