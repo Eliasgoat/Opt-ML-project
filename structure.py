@@ -8,6 +8,7 @@ import numpy as np
 import json
 import time
 import tqdm
+import pandas as pd
 
 
 # === Seed setting ===
@@ -587,6 +588,59 @@ def run_experiments(
 
     return results
 
+
+# function to treat results: takes results and returns the best experiment (best lr) for each optimizer
+# so we can compare optimizer that are best_tuned
+def select_best_lr_per_optimizer(results, metric="accuracies"):
+    best_experiments = []
+    results_df = pd.DataFrame(results)
+
+    optimizers = results_df["optimizer"].unique()
+
+    for optimizer in optimizers:
+        subset = results_df[results_df["optimizer"] == optimizer].copy()
+        
+        # Prendre la moyenne de la dernière epoch d'accuracy
+        subset["final_metric"] = subset[metric].apply(lambda x: x[-1])
+        
+        # Sélectionner la meilleure expérience
+        if metric == "test_losses":
+            best_row = subset.loc[subset["final_metric"].idxmin()]
+        else:
+            best_row = subset.loc[subset["final_metric"].idxmax()]
+        best_experiments.append(best_row.to_dict())
+
+    return best_experiments
+
+
+# just to output a clear ranking of the optimizers
+# (best to worst) based on the best results of each optimizer
+def rank_optimizers(best_results, metric="accuracies"):
+    """
+    Classe les optimizers en fonction de leur performance (sur le dataset et modèle donnés).
+    
+    Args:
+        best_results (list of dict): Liste des meilleures expériences par optimizer.
+        metric (str): 'accuracies' (par défaut) ou 'test_losses'.
+        
+    Returns:
+        pandas.DataFrame: DataFrame trié du meilleur au pire optimizer.
+    """
+    
+    df = pd.DataFrame(best_results).copy()
+
+    # Ajouter une colonne pour la performance finale (si ce n'est pas déjà fait)
+    if "final_metric" not in df.columns:
+        df["final_metric"] = df[metric].apply(lambda x: x[-1])
+
+    # Trier selon le metric
+    if metric == "test_losses":
+        df = df.sort_values("final_metric", ascending=True)
+    else:
+        df = df.sort_values("final_metric", ascending=False)
+    
+    df = df.reset_index(drop=True)
+    return df[["optimizer", "lr", "final_metric"]]
 
 
 
