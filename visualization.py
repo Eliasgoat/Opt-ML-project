@@ -8,12 +8,11 @@ from collections import defaultdict
 
 def plot_losses(results, param_index=None, selected_indices=None, save_path=None):
     """
-    Affiche les courbes de pertes (train/test) pour les expériences données.
-    
-    - Si `param_index` est fourni, trace train+test pour une seule expérience.
-    - Sinon, affiche toutes les pertes train puis test.
-    - Affiche uniquement les paramètres qui varient.
-    - `save_path` (sans extension) permet de sauvegarder les figures dans "Results/"
+    Plot train or test loss curves for a given .json file containing experiment results.
+
+    - If `param_index` is provided, plots a single experiment's train and test losses. Otherwise, plots all train and test losses.
+    - Only displays parameters that vary.
+    - `save_path` (without extension) allows saving figures to "Results/".
     """
 
     def format_params(params):
@@ -25,7 +24,7 @@ def plot_losses(results, param_index=None, selected_indices=None, save_path=None
                 and len(set(str(exp.get(k)) for exp in results)) > 1]
 
     if param_index is not None:
-        # === Cas 1 : un seul run ===
+        # === Case 1: plot a single experiment ===
         exp = results[param_index]
         plt.figure(figsize=(8, 4))
         plt.plot(exp['train_losses'], label="Train Loss", linestyle='--')
@@ -41,7 +40,7 @@ def plot_losses(results, param_index=None, selected_indices=None, save_path=None
         plt.show()
 
     else:
-        # === Cas 2 : plusieurs runs ===
+        # === Case 2: plot all experiments ===
         if selected_indices is None:
             selected_indices = list(range(len(results)))
         colors = plt.cm.viridis(np.linspace(0, 1, len(selected_indices)))
@@ -65,16 +64,12 @@ def plot_losses(results, param_index=None, selected_indices=None, save_path=None
         plot_curve("train_losses", "Train Loss")
         plot_curve("test_losses", "Test Loss")
 
-import matplotlib.pyplot as plt
-import numpy as np
-import os
+
 import math
-from collections import defaultdict
-from scipy.stats import sem
 from itertools import product
 
 def extract_nested(d, key_path):
-    """Extrait une valeur depuis un dictionnaire imbriqué selon un chemin en string 'a.b.c'."""
+    """Extract a nested value from a dictionary using a dotted path string like 'a.b.c'."""
     for key in key_path.split('.'):
         d = d.get(key, {})
     return d if d != {} else None
@@ -83,14 +78,14 @@ def plot_metrics_vs_param_grouped(results, x_param, metrics, group_by=None, spli
                                    title="", save_path=None, logx=False, logy=False,
                                    grid=True, max_overall=False, subplots=True):
     """
-    Générique : supporte group_by, split_by, clés imbriquées.
+    Generic plotting function: supports group_by, split_by, and nested keys.
     """
     if isinstance(group_by, str):
         group_by = [group_by]
     if isinstance(split_by, str):
         split_by = [split_by]
 
-    # Récupérer toutes les combinaisons de split_by
+    # Extract all combinations of split_by keys
     unique_split_vals = {
         key: sorted(set(extract_nested(r, key) for r in results if extract_nested(r, key) is not None))
         for key in split_by
@@ -108,7 +103,7 @@ def plot_metrics_vs_param_grouped(results, x_param, metrics, group_by=None, spli
             split_groups[split_key] = filtered
 
     def plot_one_panel(ax, group_results, color_cycle):
-        # Grouping
+        # Group experiments by group_by key(s)
         grouped = defaultdict(list)
         for exp in group_results:
             key = tuple((k, extract_nested(exp, k)) for k in group_by)
@@ -150,7 +145,7 @@ def plot_metrics_vs_param_grouped(results, x_param, metrics, group_by=None, spli
         if grid: ax.grid(True, linestyle='--', alpha=0.6)
         ax.legend(fontsize=8)
 
-    # Subplots
+    # Handle subplots if multiple splits
     num = len(split_groups)
     ncols = min(2, num)
     nrows = math.ceil(num / ncols)
@@ -181,27 +176,89 @@ def plot_metrics_vs_param_grouped(results, x_param, metrics, group_by=None, spli
                 os.makedirs("Results", exist_ok=True)
                 plt.savefig(os.path.join("Results", f"{save_path}_{suffix}.png"), bbox_inches="tight", dpi=300)
             plt.show()
+
+
 import json
 
 def load_results(filename):
     """
-    Charge un fichier de résultats JSON depuis le dossier 'Data/'.
-    
-    Paramètres :
-    - filename (str) : nom du fichier (avec ou sans extension)
+    Load a JSON result file from the 'Data/' directory.
 
-    Retourne :
-    - results (list[dict]) : liste des expériences
+    Parameters:
+    - filename (str): file name (with or without extension)
+
+    Returns:
+    - results (list[dict]): list of experiment results
     """
     if not filename.endswith(".json"):
         filename += ".json"
 
-    full_path = os.path.join("Data", filename)
+    full_path = os.path.join("data", filename)
     if not os.path.exists(full_path):
-        raise FileNotFoundError(f"Le fichier '{full_path}' n'existe pas.")
+        raise FileNotFoundError(f"The file '{full_path}' does not exist.")
     
     with open(full_path, "r") as f:
         results = json.load(f)
 
-    print(f"✅ {len(results)} expériences chargées depuis '{full_path}'")
+    print(f"✅ {len(results)} experiments loaded from '{full_path}'")
     return results
+
+
+def plot_test_loss_per_optimizer(results, title=None, save_path=None):
+    """
+    Plot average test loss (and standard deviation) over seeds, for each epoch and optimizer.
+    """
+    grouped = defaultdict(list)
+    for exp in results:
+        grouped[exp["optimizer"]].append(exp)
+
+    plt.figure(figsize=(10, 6))
+    for i, (optimizer, exps) in enumerate(grouped.items()):
+        losses_all = [exp["test_losses_avg"] for exp in exps if "test_losses_avg" in exp]
+        if not losses_all:
+            continue
+        losses_all = np.array(losses_all)
+        mean_loss = losses_all.mean(axis=0)
+        std_loss = losses_all.std(axis=0)
+        epochs = np.arange(1, len(mean_loss)+1)
+        plt.plot(epochs, mean_loss, label=optimizer)
+        plt.fill_between(epochs, mean_loss - std_loss, mean_loss + std_loss, alpha=0.2)
+
+    plt.title(title or "Average Test Loss per Optimizer")
+    plt.xlabel("Epochs")
+    plt.ylabel("Test Loss")
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.legend()
+    if save_path:
+        os.makedirs("Results", exist_ok=True)
+        plt.savefig(os.path.join("Results", f"{save_path}.png"), bbox_inches="tight", dpi=300)
+    plt.show()
+
+
+def print_final_accuracy_per_optimizer(results, return_dict=False):
+    """
+    Print (and optionally return) the final average test accuracy and standard deviation
+    for each optimizer, based on `accuracies_avg` and `accuracies_std` of the results parameter.
+    """
+
+    grouped = defaultdict(list)
+    for exp in results:
+        grouped[exp["optimizer"]].append(exp)
+
+    summary = {}
+    for optimizer, exps in grouped.items():
+        for exp in exps:
+            if "accuracies_avg" in exp and "accuracies_std" in exp:
+                final_avg = exp["accuracies_avg"][-1]
+                final_std = exp["accuracies_std"][-1]
+                summary[optimizer] = (final_avg, final_std)
+                break  # Take only the first entry if already averaged across seeds
+
+    sorted_summary = sorted(summary.items(), key=lambda x: x[1][0], reverse=True)
+
+    print("✅ Final average test accuracy (with std deviation) per optimizer:")
+    for optimizer, (mean_acc, std_acc) in sorted_summary:
+        print(f"  - {optimizer}: {mean_acc:.4f} ± {std_acc:.4f}")
+
+    if return_dict:
+        return dict(sorted_summary)
