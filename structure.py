@@ -1,18 +1,18 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
 import random
 import numpy as np
 import json
 import time
 import tqdm
 import pandas as pd
-from datasets import load_dataset
 
 
-# === Seed setting ===
+# === Seed setting ==
 def set_seed(seed=42):
     torch.manual_seed(seed)
     random.seed(seed)
@@ -55,6 +55,52 @@ class SimpleCNN(nn.Module):
         x = self.fc2(x)
         return x
 
+
+class CNN(nn.Module):
+    def __init__(self, input_channels, conv_layers_config, fc_layers, activation="relu", use_maxpool=True, input_size=(32, 32)):
+        super(CNN, self).__init__()
+        self.activation_fn = getattr(torch.nn.functional, activation)
+        self.use_maxpool = use_maxpool
+
+        layers = []
+        in_channels = input_channels
+
+        # --- Build convolutional layers ---
+        for layer_conf in conv_layers_config:
+            layers.append(nn.Conv2d(in_channels, layer_conf["out_channels"], kernel_size=layer_conf["kernel_size"], padding=1))
+            layers.append(nn.BatchNorm2d(layer_conf["out_channels"]))
+            layers.append(nn.ReLU(inplace=True))  # ou autre activation
+
+            if use_maxpool:
+                layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
+
+            in_channels = layer_conf["out_channels"]
+
+        self.conv = nn.Sequential(*layers)
+
+        # --- Determine the output shape after conv ---
+        with torch.no_grad():
+            dummy_input = torch.zeros(1, input_channels, *input_size)
+            conv_output = self.conv(dummy_input)
+            conv_output_size = conv_output.view(1, -1).shape[1]  # nombre de features après flatten
+
+        # --- Build fully connected layers ---
+        fc = []
+        in_features = conv_output_size
+        for out_features in fc_layers:
+            fc.append(nn.Linear(in_features, out_features))
+            fc.append(nn.ReLU(inplace=True))
+            in_features = out_features
+
+        self.fc = nn.Sequential(*fc)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        return x
+
+
 def get_model(name, **model_params):
     """
     Retourne un modèle en fonction du nom et des paramètres.
@@ -64,7 +110,7 @@ def get_model(name, **model_params):
     if name == "MLP":
         return MLP(**model_params)
     elif name == "CNN":
-        return SimpleCNN(**model_params)
+        return CNN(**model_params)
     else:
         raise ValueError(f"Model {name} not supported yet.")
     
@@ -78,7 +124,6 @@ def get_model(name, **model_params):
 
 
 # === Dataset ===
-
 def get_dataset(name, batch_size=64):
     """
     Charge un dataset depuis torchvision.
@@ -135,8 +180,6 @@ def get_dataset(name, batch_size=64):
         DataLoader(train, batch_size=batch_size, shuffle=True),
         DataLoader(test, batch_size=batch_size, shuffle=False)
     )
-
-
 
 
 
@@ -413,6 +456,8 @@ def get_scheduler(optimizer, scheduler_config):
 
 
 # === Training & Evaluation with Scheduler Support ===
+
+# === Training & Evaluation with Scheduler Support ===
 def infer_model_params_from_dataset(model_name, dataset_name, model_params=None):
     if model_params is None:
         model_params = {}
@@ -447,7 +492,6 @@ def infer_model_params_from_dataset(model_name, dataset_name, model_params=None)
             raise ValueError(f"Unknown dataset: {dataset_name}")
 
     return model_params
-
 
 
 def train_and_evaluate(dataset_name, optimizer_name, model_name, optimizer_params,
@@ -527,6 +571,53 @@ def train_and_evaluate(dataset_name, optimizer_name, model_name, optimizer_param
     return train_losses, test_losses, test_accuracies, duration
 
 
+def run_multiple_seeds(dataset_name, optimizer_name, model_name, optimizer_params,
+                       model_params=None, scheduler_config=None, epochs=5, seeds=[0, 1, 2]):
+    all_train_losses = []
+    all_test_losses = []
+    all_test_accuracies = []
+
+    for seed in seeds:
+        set_seed(seed)
+        train_losses, test_losses, test_accuracies, _ = train_and_evaluate(
+            dataset_name,
+            optimizer_name,
+            model_name,
+            optimizer_params,
+            model_params=model_params,
+            scheduler_config=scheduler_config,
+            epochs=epochs
+        )
+        all_train_losses.append(train_losses)
+        all_test_losses.append(test_losses)
+        all_test_accuracies.append(test_accuracies)
+
+    # Moyennes et écarts-types
+    avg_train_loss = np.mean(all_train_losses, axis=0)
+    std_train_loss = np.std(all_train_losses, axis=0)
+    avg_test_loss = np.mean(all_test_losses, axis=0)
+    std_test_loss = np.std(all_test_losses, axis=0)
+    avg_test_acc = np.mean(all_test_accuracies, axis=0)
+    std_test_acc = np.std(all_test_accuracies, axis=0)
+
+    return {
+        "avg_train_loss": avg_train_loss,
+        "std_train_loss": std_train_loss,
+        "avg_test_loss": avg_test_loss,
+        "std_test_loss": std_test_loss,
+        "avg_test_acc": avg_test_acc,
+        "std_test_acc": std_test_acc,
+        "all_test_accuracies": all_test_accuracies  # si tu veux tracer individuellement aussi
+    }
+def convert_np(obj):
+    """Convertit les objets numpy en types Python de base (pour JSON)."""
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, (np.integer, np.floating)):
+        return obj.item()
+    return obj
+
+
 # === Experiment Runner with Param Scan Support ===
 import os
 import json
@@ -539,7 +630,9 @@ def run_experiments(
     epochs=5,
     save_results=False,
     save_path="results.json",
-    linear=False
+    linear=False,
+    avg_over_seeds = False,
+    seeds = [0, 1, 2, 3, 4]
 ):
     results = []
 
@@ -576,37 +669,64 @@ def run_experiments(
             print(f"📉 Scheduler   : {scheduler_config['type']} ({format_params(scheduler_config['params'])})")
         print(f"📈 Epochs      : {epochs}")
 
-        train_losses, test_losses, test_accuracies, duration = train_and_evaluate(
-            dataset_name=dataset,
-            optimizer_name=opt_name,
-            model_name=model_name,
-            optimizer_params=opt_params,
-            model_params=model_params,
-            scheduler_config=scheduler_config,
-            epochs=epochs
-        )
+        if avg_over_seeds:
+          res = run_multiple_seeds(
+              dataset_name=dataset,
+              optimizer_name=opt_name,
+              model_name=model_name,
+              optimizer_params=opt_params,
+              model_params=model_params,
+              scheduler_config=scheduler_config,
+              epochs=epochs,
+              seeds=seeds
+          )
+          results.append({
+              "dataset": dataset,
+              "model": model_name,
+              "model_params": model_params,
+              "optimizer": opt_name,
+              "optimizer_params": opt_params,
+              "scheduler": scheduler_config,
+              "train_losses_avg": res["avg_train_loss"],
+              "train_losses_std": res["std_train_loss"],
+              "test_losses_avg": res["avg_test_loss"],
+              "test_losses_std": res["std_test_loss"],
+              "accuracies_avg": res["avg_test_acc"],
+              "accuracies_std": res["std_test_acc"],
+              "all_accuracies": res["all_test_accuracies"]
+          })
+        else:
+          train_losses, test_losses, test_accuracies, duration = train_and_evaluate(
+              dataset_name=dataset,
+              optimizer_name=opt_name,
+              model_name=model_name,
+              optimizer_params=opt_params,
+              model_params=model_params,
+              scheduler_config=scheduler_config,
+              epochs=epochs
+          )
+          results.append({
+              "dataset": dataset,
+              "model": model_name,
+              "model_params": model_params,
+              "optimizer": opt_name,
+              "optimizer_params": opt_params,
+              "scheduler": scheduler_config,
+              "duration": duration,
+              "train_losses": train_losses,
+              "test_losses": test_losses,
+              "accuracies": test_accuracies
+          })
 
-        results.append({
-            "dataset": dataset,
-            "model": model_name,
-            "model_params": model_params,
-            "optimizer": opt_name,
-            "optimizer_params": opt_params,
-            "scheduler": scheduler_config,
-            "duration": duration,
-            "train_losses": train_losses,
-            "test_losses": test_losses,
-            "accuracies": test_accuracies
-        })
         if save_results:
             temp_path = save_path.replace(".json", "_temp.json")
             with open(temp_path, "w") as f:
-                json.dump(results, f, indent=2)
+                json.dump(results, f, indent=2, default=convert_np)
             print(f"💾 Temp results saved to {temp_path}")
     if save_results:
         os.makedirs("Data", exist_ok=True)
         with open(save_path, "w") as f:
-            json.dump(results, f, indent=2)
+            json.dump(results, f, indent=2, default=convert_np)
         print(f"\n✅ Résultats sauvegardés dans '{save_path}'")
 
     return results
