@@ -103,9 +103,9 @@ class CNN(nn.Module):
 
 def get_model(name, **model_params):
     """
-    Retourne un modèle en fonction du nom et des paramètres.
-    
-    model_params : dictionnaire contenant les bons arguments pour le modèle choisi.
+    Returns a model based on the name and parameters.
+
+    model_params: dictionary containing the appropriate arguments for the chosen model.
     """
     if name == "MLP":
         return MLP(**model_params)
@@ -126,13 +126,13 @@ def get_model(name, **model_params):
 # === Dataset ===
 def get_dataset(name, batch_size=64):
     """
-    Charge un dataset depuis torchvision.
+    Loads a dataset from torchvision.
 
-    Arguments :
-    - name : nom du dataset ("MNIST", "FashionMNIST", "KMNIST", "EMNIST_BALANCED", "CIFAR10", "CIFAR100", "SVHN")
-    - batch_size : taille de batch pour les dataloaders
+    Arguments:
+    - name: name of the dataset ("MNIST", "FashionMNIST", "KMNIST", "EMNIST_BALANCED", "CIFAR10", "CIFAR100", "SVHN")
+    - batch_size: batch size for the dataloaders
 
-    Retourne : train_loader, test_loader
+    Returns: train_loader, test_loader
     """
     if name in ["MNIST", "FashionMNIST", "KMNIST", "EMNIST_BALANCED"]:
         transform = transforms.ToTensor()
@@ -274,10 +274,10 @@ class Nesterov(Optimizer):
 
 class NewtonOptimizer(Optimizer):
     """
-    Implémentation naïve d'une méthode de Newton.
-    Utilise l’inverse de la Hessienne pour faire : x ← x - H⁻¹g
+    Naive implementation of a Newton's method.
+    Uses the inverse of the Hessian to perform: x ← x - H⁻¹g
 
-    ⚠️ : très coûteux, ne pas utiliser avec gros modèles.
+    ⚠️: very expensive, do not use with large models.
     """
     def __init__(self, params, lr=1.0, epsilon=1e-4):
         defaults = {"lr": lr, "epsilon": epsilon}
@@ -318,12 +318,12 @@ class NewtonOptimizer(Optimizer):
                    
 class ProjectedGradientDescent(Optimizer):
     """
-    Optimiseur de type PGD : descend le long du gradient, puis projette les poids dans un espace contraint.
-    
-    Arguments :
-    - lr : taux d'apprentissage.
-    - projection : fonction à appliquer sur les poids après mise à jour. Par défaut : clamp entre -1 et 1.
-      Par exemple, pour projeter tous les poids à [0, 1], utiliser : projection=lambda x: x.clamp(0, 1)
+    PGD-type optimizer: performs gradient descent, then projects the weights into a constrained space.
+
+    Arguments:
+    - lr: learning rate.
+    - projection: function to apply to the weights after the update. Default: clamp between -1 and 1.
+    For example, to project all weights to [0, 1], use: projection=lambda x: x.clamp(0, 1)
     """
     def __init__(self, params, lr=0.01, projection=lambda x: x.clamp(-1, 1)):
         defaults = {'lr': lr, 'projection': projection}
@@ -337,7 +337,6 @@ class ProjectedGradientDescent(Optimizer):
             for p in group['params']:
                 if p.grad is not None:
                     p -= lr * p.grad
-                    # Appliquer la contrainte après la mise à jour
                     p.copy_(proj(p))
 
 # === Projection Utils ===
@@ -345,13 +344,13 @@ class ProjectedGradientDescent(Optimizer):
 
 def make_clip_projection(min_val=-1.0, max_val=1.0):
     """
-    Projette chaque poids individuellement dans [min_val, max_val]
+    Projects each weight individually into [min_val, max_val]
     """
     return lambda x: x.clamp(min_val, max_val)
 
 def make_l2_projection(max_norm=5.0):
     """
-    Projette l'ensemble des poids sur une boule de norme L2 <= max_norm
+    Projects all weights onto an L2-norm ball with radius <= max_norm
     """
     def proj(x):
         norm = x.norm()
@@ -360,8 +359,8 @@ def make_l2_projection(max_norm=5.0):
 
 def make_l1_projection(max_norm=5.0):
     """
-    Projette l'ensemble des poids sur une boule de norme L1 <= max_norm
-    Approche simple (non-optimale) : rescale si dépasse.
+    Projects all weights onto an L1-norm ball with radius <= max_norm
+    Simple (non-optimal) approach: rescale if it exceeds the limit.
     """
     def proj(x):
         norm = x.abs().sum()
@@ -370,13 +369,13 @@ def make_l1_projection(max_norm=5.0):
 
 def make_binary_projection():
     """
-    Force les poids à être -1 ou +1 (approximation binaire sign-based)
+    Forces the weights to be -1 or +1 (sign-based binary approximation)
     """
     return lambda x: x.sign
 
 def make_unit_sphere_projection():
     """
-    Normalise le vecteur de poids pour qu’il ait une norme L2 = 1
+    Normalizes the weight vector so that it has an L2 norm equal to 1
     """
     return lambda x: x / (x.norm() + 1e-8)
 
@@ -389,7 +388,7 @@ projection_factory = {
     "unit": make_unit_sphere_projection,
 }
 
-# Exemple : projection_factory["clip"](min_val=-0.5, max_val=0.5)
+# Example : projection_factory["clip"](min_val=-0.5, max_val=0.5)
 
 # === Optimizer Factory ===
 def get_optimizer(name, model_params, optimizer_params):
@@ -610,7 +609,7 @@ def run_multiple_seeds(dataset_name, optimizer_name, model_name, optimizer_param
         "all_test_accuracies": all_test_accuracies  # si tu veux tracer individuellement aussi
     }
 def convert_np(obj):
-    """Convertit les objets numpy en types Python de base (pour JSON)."""
+    """Converts numpy objects to basic Python types (for JSON)."""
     if isinstance(obj, np.ndarray):
         return obj.tolist()
     if isinstance(obj, (np.integer, np.floating)):
@@ -760,14 +759,14 @@ def select_best_lr_per_optimizer(results, metric="accuracies"):
 # (best to worst) based on the best results of each optimizer
 def rank_optimizers(best_results, metric="accuracies"):
     """
-    Classe les optimizers en fonction de leur performance (sur le dataset et modèle donnés).
-    
+    Ranks the optimizers based on their performance (on the given dataset and model).
+
     Args:
-        best_results (list of dict): Liste des meilleures expériences par optimizer.
-        metric (str): 'accuracies' (par défaut) ou 'test_losses'.
-        
+        best_results (list of dict): List of best experiments per optimizer.
+        metric (str): 'accuracies' (default) or 'test_losses'.
+
     Returns:
-        pandas.DataFrame: DataFrame trié du meilleur au pire optimizer.
+        pandas.DataFrame: DataFrame sorted from best to worst optimizer.
     """
     
     df = pd.DataFrame(best_results).copy()
@@ -798,10 +797,10 @@ def rank_optimizers(best_results, metric="accuracies"):
 # === Parameter Sweep ===
 def build_optimizer_param_sweep(name, **param_lists):
     """
-    Crée une liste de configurations d'optimiseurs à partir de listes de paramètres.
-    Les listes doivent être de même taille et sont combinées par `zip`.
-    
-    Ex:
+    Creates a list of optimizer configurations from parameter lists.
+    The lists must be the same size and are combined using `zip`.
+
+    Example:
     build_optimizer_param_sweep("SGD", lr=[0.01, 0.1], weight_decay=[0.0, 1e-4])
     -> [
         {"name": "SGD", "params": {"lr": 0.01, "weight_decay": 0.0}},
@@ -820,22 +819,22 @@ def build_optimizer_param_sweep(name, **param_lists):
 # === Scheduler and Optimizer Configs ===
 def make_scheduler_config(scheduler_type, **params):
     """
-    Crée un dictionnaire de configuration pour un scheduler
-    Ex: make_scheduler_config("StepLR", step_size=2, gamma=0.5)
+    Creates a configuration dictionary for a scheduler.
+    Example: make_scheduler_config("StepLR", step_size=2, gamma=0.5)
     """
     return {"type": scheduler_type, "params": params}
 
 def make_optimizer_config(name, **params):
     """
-    Crée un dictionnaire de configuration pour un optimiseur
-    Ex: make_optimizer_config("Adam", lr=0.001, weight_decay=1e-4)
+    Creates a configuration dictionary for an optimizer.
+    Example: make_optimizer_config("Adam", lr=0.001, weight_decay=1e-4)
     """
     return {"name": name, "params": params}
 
 def make_model_config(name, **params):
     """
-    Crée une configuration de modèle standardisée.
-    Ex: make_model_config("MLP", input_size=784, hidden_sizes=[128,64], num_classes=10)
+    Creates a standardized model configuration.
+    Example: make_model_config("MLP", input_size=784, hidden_sizes=[128,64], num_classes=10)
     """
     return {"name": name, "params": params}
 
