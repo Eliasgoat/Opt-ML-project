@@ -2,13 +2,14 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 import random
 import numpy as np
 import json
 import time
 import tqdm
 import pandas as pd
+from datasets import load_dataset
 
 
 # === Seed setting ===
@@ -77,24 +78,40 @@ def get_model(name, **model_params):
 
 
 # === Dataset ===
+
 def get_dataset(name, batch_size=64):
     """
     Charge un dataset depuis torchvision.
-    
+
     Arguments :
-    - name : nom du dataset ("MNIST", "FashionMNIST", "CIFAR10", "CIFAR100")
+    - name : nom du dataset ("MNIST", "FashionMNIST", "KMNIST", "EMNIST_BALANCED", "CIFAR10", "CIFAR100", "SVHN")
     - batch_size : taille de batch pour les dataloaders
-    
+
     Retourne : train_loader, test_loader
     """
-    if name == "MNIST":
+    if name in ["MNIST", "FashionMNIST", "KMNIST", "EMNIST_BALANCED"]:
         transform = transforms.ToTensor()
+
+    if name == "MNIST":
         train = datasets.MNIST(root="./data", train=True, download=True, transform=transform)
         test = datasets.MNIST(root="./data", train=False, download=True, transform=transform)
+
     elif name == "FashionMNIST":
-        transform = transforms.ToTensor()
         train = datasets.FashionMNIST(root="./data", train=True, download=True, transform=transform)
         test = datasets.FashionMNIST(root="./data", train=False, download=True, transform=transform)
+
+    elif name == "EMNIST_BALANCED":
+        train = datasets.EMNIST(root="./data", split="balanced", train=True, download=True, transform=transform)
+        test = datasets.EMNIST(root="./data", split="balanced", train=False, download=True, transform=transform)
+
+    elif name == "SVHN":
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
+        train = datasets.SVHN(root="./data", split="train", download=True, transform=transform)
+        test = datasets.SVHN(root="./data", split="test", download=True, transform=transform)
+
     elif name == "CIFAR10":
         transform = transforms.Compose([
             transforms.ToTensor(),
@@ -102,6 +119,7 @@ def get_dataset(name, batch_size=64):
         ])
         train = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
         test = datasets.CIFAR10(root="./data", train=False, download=True, transform=transform)
+
     elif name == "CIFAR100":
         transform = transforms.Compose([
             transforms.ToTensor(),
@@ -109,11 +127,14 @@ def get_dataset(name, batch_size=64):
         ])
         train = datasets.CIFAR100(root="./data", train=True, download=True, transform=transform)
         test = datasets.CIFAR100(root="./data", train=False, download=True, transform=transform)
+
     else:
-        raise ValueError(f"Dataset {name} not supported yet.")
+        raise ValueError(f"Dataset '{name}' not supported. Try: MNIST, FashionMNIST, KMNIST, EMNIST_BALANCED, CIFAR10, CIFAR100, SVHN")
 
-    return DataLoader(train, batch_size=batch_size, shuffle=True), DataLoader(test, batch_size=batch_size, shuffle=False)
-
+    return (
+        DataLoader(train, batch_size=batch_size, shuffle=True),
+        DataLoader(test, batch_size=batch_size, shuffle=False)
+    )
 
 
 
@@ -392,39 +413,41 @@ def get_scheduler(optimizer, scheduler_config):
 
 
 # === Training & Evaluation with Scheduler Support ===
-
 def infer_model_params_from_dataset(model_name, dataset_name, model_params=None):
-    """
-    Déduit certains paramètres du modèle à partir du dataset, si non spécifiés.
-
-    - num_classes : 10 ou 100 selon le dataset
-    - input_size : pour MLP uniquement
-    - in_channels : pour CNN uniquement
-    """
     if model_params is None:
         model_params = {}
 
-    # Nombre de classes
+    # === Nombre de classes ===
     if "num_classes" not in model_params:
-        if dataset_name in ["MNIST", "FashionMNIST", "CIFAR10"]:
+        if dataset_name in ["MNIST", "FashionMNIST", "CIFAR10", "SVHN"]:
             model_params["num_classes"] = 10
         elif dataset_name == "CIFAR100":
             model_params["num_classes"] = 100
+        elif dataset_name == "EMNIST_BALANCED":
+            model_params["num_classes"] = 47
         else:
             raise ValueError(f"Unknown dataset: {dataset_name}")
 
-    # Dimensions d'entrée pour MLP
+    # === Taille d'entrée pour MLP ===
     if model_name == "MLP" and "input_size" not in model_params:
-        if dataset_name in ["MNIST", "FashionMNIST"]:
+        if dataset_name in ["MNIST", "FashionMNIST",  "EMNIST_BALANCED"]:
             model_params["input_size"] = 28 * 28
-        elif dataset_name in ["CIFAR10", "CIFAR100"]:
+        elif dataset_name in ["CIFAR10", "CIFAR100", "SVHN"]:
             model_params["input_size"] = 3 * 32 * 32
+        else:
+            raise ValueError(f"Unknown dataset: {dataset_name}")
 
-    # Canal d'entrée pour CNN
+    # === Nombre de canaux pour CNN ===
     if model_name == "CNN" and "in_channels" not in model_params:
-        model_params["in_channels"] = 1 if dataset_name in ["MNIST", "FashionMNIST"] else 3
+        if dataset_name in ["MNIST", "FashionMNIST", "EMNIST_BALANCED"]:
+            model_params["in_channels"] = 1
+        elif dataset_name in ["CIFAR10", "CIFAR100", "SVHN"]:
+            model_params["in_channels"] = 3
+        else:
+            raise ValueError(f"Unknown dataset: {dataset_name}")
 
     return model_params
+
 
 
 def train_and_evaluate(dataset_name, optimizer_name, model_name, optimizer_params,
@@ -537,7 +560,7 @@ def run_experiments(
 
     for i, (dataset, model_config, opt_dict) in enumerate(configs, 1):
         model_name = model_config["name"]
-        model_params = model_config.get("params", {})
+        model_params = model_config.get("params", {}).copy()
         opt_name = opt_dict["name"]
         opt_params = opt_dict["params"]
 
