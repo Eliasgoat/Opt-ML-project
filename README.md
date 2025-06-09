@@ -1,104 +1,126 @@
-# Opt-ML-project# Optimization Algorithms Benchmarking
+# How Optimizers Generalize: A Study on Non-Convex Architectures
 
-This project provides a modular and extensible framework to benchmark various optimization algorithms on multiple deep learning tasks. Our primary objective is to assess the **efficiency** and **accuracy** of optimizers across datasets and model architectures, focusing especially on custom and classical gradient-based methods.
+This repository contains the code, experiments, and visualizations for our mini-project in the course **Optimization for Machine Learning (EPFL, Spring 2025)**. We investigate how different optimization algorithms behave on non-convex deep learning models, across two standard datasets (CIFAR10, SVHN) and two architectures (MLP, CNN).
 
-📝 Full methodology and experimental protocol are detailed in the Overleaf report: [Optimization Benchmark Report](https://www.overleaf.com/read/qgyqdcwdnzsx#3a32ed)
+## 🔍 Objective
 
----
+We study the convergence and generalization performance of the following optimizers:
+- Gradient Descent (GD)
+- Stochastic Gradient Descent (SGD)
+- Momentum
+- Nesterov Accelerated Gradient
+- Adam
+- RMSProp
+- Projected Gradient Descent (PGD)
+- Partial Gradient Descent (PartialGD)
 
-## 🔧 Project Structure
+## 📁 Repository Structure
 
-- `structure.py`: Core logic for loading datasets, initializing models, defining optimizers/schedulers, training and evaluating.
-- `visualization.py`: (WIP) Will contain tools for analyzing and visualizing experiment results.
-- `Data/`: All experiment results (in `.json` format) are saved here.
-- `Results/`: All generated plots and visual figures will be saved here.
+```
 
----
+.
+├── CNN/                            # Scripts for running CNN experiments
+├── MLP/                            # Scripts for running MLP experiments
+├── data/                           # All raw .json files from experimental runs
+├── PDF/                            # Final report PDF: 'How Optimizers Generalize...'
+├── Results/                        # All result plots (.png) are saved here
+├── structure.py                    # Main logic: model definitions, training loop, optimizers
+├── visualization.py               # Functions for loading results and generating plots
+├── \*.ipynb                         # Analysis notebooks: loads data from `data/` and generates plots
+└── README.md                       # This file
 
-## 🚀 Quick Start: Run a Full Experiment
+````
 
-We provide utility functions to simplify the setup of model, optimizer, and scheduler configurations.
+## ⚙️ How to Run Experiments
 
-### Useful Config Builders
+### 1. Install dependencies
+This project uses Python 3 and `torch`, `torchvision`, `numpy`, `matplotlib`. Install via:
 
-- `make_model_config(name, **params)`: describes a model and its hyperparameters.
-- `make_optimizer_config(name, **params)`: defines the optimizer type and settings.
-- `make_scheduler_config(type, **params)`: (optional) sets up learning rate scheduling.
-- `build_optimizer_param_sweep(name, **param_lists)`: lets you scan several values (e.g., different learning rates) for a given optimizer.
+```bash
+pip install torch torchvision matplotlib numpy
+````
 
-### 🔁 Example: Run MLP on Several Datasets with Different Learning Rates (SGD)
+### 2. Launch experiments
+
+Experiments are launched using `run_experiments()` from `structure.py`.
+
+Example (inside a script in `CNN/` or `MLP/`):
 
 ```python
 from structure import run_experiments, make_model_config, build_optimizer_param_sweep
 
-datasets = ["MNIST", "FashionMNIST", "CIFAR10"]
-models = [make_model_config("MLP", input_size=784, hidden_sizes=[128,64], num_classes=10)]
-optimizers = build_optimizer_param_sweep("SGD", lr=[0.001, 0.01, 0.1])
-
+models = [make_model_config("CNN", input_channels=3, ...)]
+optimizers = build_optimizer_param_sweep("SGD", lr=[0.01, 0.001])
 run_experiments(
-    datasets=datasets,
+    datasets=["CIFAR10"],
     models=models,
     optimizers_with_params=optimizers,
+    epochs=30,
     save_results=True,
-    save_path="Data/mlp_sgd_lr_scan.json"
+    save_path="data/cifar10_cnn_sgd.json"
 )
 ```
 
-This runs 9 experiments (3 datasets × 3 learning rates), each training an MLP with SGD and logs results into `Data/mlp_sgd_lr_scan.json`.
+You can vary the dataset, optimizer, architecture, learning rate and more. Models and optimizers are specified using dictionaries.
 
----
+### 3. Visualize results
 
-## 🛠️ Extend the Framework
+Use `visualization.py` to generate all figures.
 
-### ➕ Add a New Dataset
-
-1. Edit `get_dataset()` in `structure.py`.
-2. Add a new entry using `torchvision.datasets` or a custom loader.
-3. Return train/test `DataLoader` instances.
-
-### ➕ Add a New Model
-
-1. Create a new `nn.Module` subclass.
-2. Register your model inside `get_model()`.
-
-### ➕ Add a New Optimizer
-
-1. Subclass `torch.optim.Optimizer` with your custom logic.
-2. Add it inside `get_optimizer()`.
-3. Optionally define projection constraints using `projection_factory` utilities.
-
----
-
-## 📊 Visualizing Results (WIP)
-
-The upcoming `visualization.py` module will allow:
-
-- Loss and accuracy plotting over epochs
-- Optimizer comparisons with error bars
-- Best configuration reporting per dataset
-
-All plots will be saved into the `Results/` directory and be compatible with LaTeX figures.
-
----
-
-## 🧪 Reproducibility
-
-We ensure reproducibility by setting global seeds:
+#### Plot all loss curves:
 
 ```python
-from structure import set_seed
-set_seed(42)
+from visualization import load_results, plot_losses
+results = load_results("cifar10_cnn_sgd")
+plot_losses(results)
 ```
 
----
+#### Plot grouped metrics:
 
-## 📁 Output Structure
+```python
+from visualization import plot_metrics_vs_param_grouped
+plot_metrics_vs_param_grouped(
+    results,
+    x_param="optimizer_params.lr",
+    metrics=["accuracies_avg"],
+    group_by="optimizer",
+    split_by="model",
+    save_path="Results/acc_vs_lr"
+)
+```
 
-- JSON results → `Data/`
-- PNG/SVG plots → `Results/`
+## 📊 Notebooks
 
----
+All `.ipynb` notebooks at the root level are used to:
 
-## 📬 Contact
+* Load experimental results from `data/`
+* Generate final plots
+* Export plots to `Results/`
+* These were used to produce the figures in our final paper
 
-For contributions or questions, feel free to open an issue or submit a pull request!
+## 📄 Final Report
+
+The paper is located in: [How Optimizers Generalize A Study on Non-Convex Architectures.pdf](PDF/How%20Optimizers%20Generalize%20A%20Study%20on%20Non-Convex%20Architectures.pdf)
+
+
+
+It summarizes:
+
+* Theoretical background and motivation
+* Experimental protocol
+* Test loss evolution curves
+* Final test accuracies
+* Analysis and insights
+
+## 🧠 Authors
+
+This project was conducted as part of the **Optimization for Machine Learning** course at EPFL.
+
+* Mayeul Cassier
+* Elias Mir
+* Sacha Frankhauser
+
+
+## 🔗 References
+
+See the final paper (section "References") for a full list of theoretical and empirical studies we built upon.
